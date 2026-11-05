@@ -116,6 +116,17 @@ model — already trained on speech in general — and adapts it to specific voi
 All voice models are interchangeable files: create one, import one, share it,
 use it in real time.
 
+*All data for one voice lives in one folder* (voice-first layout):
+`data/<voice>/` with `cutlist.txt` (curated time ranges), `raw/` (full source
+downloads, kept for re-cutting), `selected/` (curated wavs — the folder that goes
+into RVC WebUI dataset prep), `models/` (fine-tuned .pth output). The workflow is
+driven by one script + its cutlist (`scripts/extract-audio.sh`): a URL line starts
+a video section; the `START END` lines below it are the kept ranges; a section
+with no ranges uses the whole video. `--demucs` strips music/noise first for
+sources that need it. Quality criteria: solo speech, decent audio quality.
+Choosing source material / ranges is the only manual step; everything after
+(slicing, resampling, denoising) is delegated to RVC's dataset prep.
+
 ## 7. Milestones
 
 Detailed milestone planning is deferred until the first step produces results

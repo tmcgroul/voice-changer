@@ -1,0 +1,7 @@
+# Training data: downloaded sources, cutlists, curated clips, fine-tuned models.
+# Large, private, and reproducible from documented steps — never commit it.
+data/
+
+# OS / tooling noise
+.DS_Store
+__pycache__/
