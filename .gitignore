@@ -5,3 +5,5 @@ data/
 # OS / tooling noise
 .DS_Store
 __pycache__/
+# Third-party tooling (Applio checkout: pip deps + ~2GB pretrained models)
+external/

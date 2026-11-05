@@ -1,6 +1,6 @@
-# Voice Changer — Project Specification (v0.1)
+# Voice Changer — Project Specification (v0.2)
 
-> Status: working spec (v0.1, 2026-10-31). Living document — updated as decisions are made.
+> Status: working spec (v0.2, 2026-11-05). Living document — updated as decisions are made.
 > Some product aspects are intentionally not yet defined (owner will specify later);
 > those are marked **[TBD]**. The TBDs do not block the current next step (§7).
 
@@ -127,12 +127,9 @@ sources that need it. Quality criteria: solo speech, decent audio quality.
 Choosing source material / ranges is the only manual step; everything after
 (slicing, resampling, denoising) is delegated to RVC's dataset prep.
 
-## 7. Milestones
-
-Detailed milestone planning is deferred until the first step produces results
-— what comes after depends heavily on what we learn (model quality, latency,
-virtual-mic feasibility on macOS).
-
-**Current next step:** prepare enough clean voice data and fine-tune the
-pretrained RVC model on it (the "Creating a voice" flow, §6), verifying that
-10–30 minutes of data yields a usable voice model.
+**Current next step:** fine-tuning the pretrained RVC model is done
+(first run 2026-11-05, "Creating a voice" flow §6; verdict acceptable as
+trained). Next: measure chunked inference latency on MPS against the §4.2
+budget — decides CPU/MPS viability before per-platform work starts.
+Cutlist growth past 20 min (§6) stays a parallel task for a later
+comparison run.

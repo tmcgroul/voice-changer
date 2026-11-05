@@ -64,27 +64,46 @@ the cutlist can grow incrementally. Delete a wav and rerun to re-cut it.
 For sources with background music, add `--demucs` (once: `pip install demucs`)
 to strip vocals-only before cutting.
 
-**3. Hand off to RVC**
+**3. Fine-tune a voice model**
 
-In the RVC WebUI → "Train a model" → Step 1, point dataset preparation at the
-`selected/` folder (it does slicing, resampling, noise reduction). Spot-check
-a few extracted files before training; if the total kept speech is far below
-20 minutes, list more ranges rather than training on thin data. Fine-tuned
-models end up in `data/<voice>/models/`.
+```bash
+./scripts/fine-tune.sh <voice> [epochs]
+```
 
-Rule of thumb: whole-video when the source is fully clean; ranges as soon as
-music, other speakers, ads, or dead air appear in it.
+Runs Applio's own pipeline (slice/resample → f0+embedder extraction →
+fine-tune) with the settings that worked here. Safe to Ctrl-C and rerun:
+training resumes from the latest checkpoint. **After each run (and its
+audition), append an entry to** [TRAININGLOG.md](TRAININGLOG.md) — its fixed
+per-run template is what makes successive trainings comparable. The result —
+`data/<voice>/models/<voice>/<voice>_<N>e_<step>s.pth` plus the `.index`
+file under `generated/` — is a standard RVC model: load the pair into any
+RVC-compatible tool for conversion.
 
-## Requirements (data workflow)
+## Requirements
 
-- **yt-dlp** — downloading the source videos' audio. It's a Python package;
-  `pip install yt-dlp` (any venv/`--user`/pipx setup works).
+Everything the scripts need, with the recommended install for each. The
+scripts check for missing tools and point here when something's absent.
+
 - **ffmpeg + ffprobe** — audio extraction and trimming.
+- **yt-dlp** — downloading the source videos' audio. A Python package:
+  `pip install yt-dlp` (any venv/`--user`/pipx setup works).
+- **uv** — fast Python venv/pip frontend used to set up the training tool.
+  `curl -LsSf https://astral.sh/uv/install.sh | sh` (or `brew install uv`).
+- **Applio** — the training tool
+  ([IAHispano/Applio](https://github.com/IAHispano/Applio)): actively
+  maintained RVC fork with a CLI; setup is pure pip/uv — **no Homebrew build
+  steps needed on macOS**, unlike the original RVC WebUI.
 
-Demucs is only needed when you run the script with `--demucs`
+  ```bash
+  git clone --depth 1 https://github.com/IAHispano/Applio external/Applio
+  cd external/Applio
+  uv venv .venv --python 3.12
+  uv pip install -r requirements.txt      # macOS: torch CPU+MPS wheels
+  .venv/bin/python core.py prerequisites --no-exe   # ~2 GB pretrained G/D + predictors
+  ```
+
+Demucs is only needed when you run `extract-audio.sh` with `--demucs`
 (`pip install demucs`).
-
-The script checks for missing tools and points here when something's absent.
 
 ## Ethics / rights
 
