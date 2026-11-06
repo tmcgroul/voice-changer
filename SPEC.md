@@ -1,6 +1,6 @@
-# Voice Changer — Project Specification (v0.2)
+# Voice Changer — Project Specification (v0.3)
 
-> Status: working spec (v0.2, 2026-11-05). Living document — updated as decisions are made.
+> Status: working spec (v0.3, 2026-11-05). Living document — updated as decisions are made.
 > Some product aspects are intentionally not yet defined (owner will specify later);
 > those are marked **[TBD]**. The TBDs do not block the current next step (§7).
 
@@ -81,12 +81,59 @@ commercial product's bloat or subscription.
 
 | Stage | Budget |
 |---|---|
-| Capture buffer | 20–30 ms |
+| Capture buffer + chunk accumulation | 100–250 ms — **equals the window size itself** (the model can't run on an incomplete chunk; do not budget this as 20–30 ms) |
 | DSP front-end | < 5 ms |
-| Neural inference chunk | 100–150 ms (quality/latency knob) |
+| Neural inference compute | 65–125 ms on M3 Pro MPS (measured, window-size dependent) |
 | DSP back-end + output buffer | 20–30 ms |
 
-Quality presets: Fast (~150 ms) / Balanced (~250 ms) / Quality (~400 ms, streaming only).
+#### 4.2.1 Measured chunk latency (2026-11-05, M3 Pro / 36 GB / macOS 14.6.1, gvs_100e_2700s.pth, 40 kHz v2)
+
+Chunked per-stage timing through Applio's own inference paths
+(`scripts/bench-rvc.py`, n=25 chunks/row, p95 after 5 warm-up chunks;
+full JSON in `scripts/results/`). Context = audio padded on both sides for
+the f0/embedding pass (same op their whole-file path performs):
+
+| window | context | RMVPE f0 | ContentVec | faiss | generator | total p95 | RTF | est. e2e* |
+|---|---|---|---|---|---|---|---|---|
+| 0.1 s | ±0.25 s | 22 ms | 8 ms | 3 ms | 37 ms | **69 ms** | 0.69 | ~190–220 ms |
+| 0.25 s | ±0.25 s | 27 ms | 9 ms | 3 ms | 43 ms | **81 ms** | 0.32 | ~330–380 ms |
+| 0.5 s | ±0.25 s | 29 ms | 10 ms | 4 ms | 51 ms | **92 ms** | 0.18 | ~440–470 ms |
+| 1.0 s | ±0.25 s | 33 ms | 13 ms | 5 ms | 70 ms | **120 ms** | 0.12 | ~570 ms |
+| any | ±0.5 s | — | — | — | — | +20–30 ms vs row above | — | — |
+
+\* e2e ≈ window + compute + capture/DSP/output buffers (30 + 25 ms) — not yet
+measured with a live audio loop; treat as design estimate.
+
+**Verdict (MPS on M3 Pro):**
+- Sustained chunked inference is comfortably real-time (RTF 0.12–0.69, no
+  model-load cost once warm — the earlier 0.6–0.8× whole-file figure loaded
+  the model + ran a full-file f0 pass inside the measurement).
+- The **150–200 ms target is only reachable with 0.1 s windows**; 0.25 s
+  chunks already put e2e near/above the 300 ms ceiling. The old §4.2 preset
+  table implicitly assumed ~20–30 ms capture; that is wrong for a chunked
+  core — chunk accumulation time is the window size.
+- **MPS hard limit:** the HiFi-GAN decoder emits audio length as conv1d
+  output channels and MPS rejects > 65536 channels → **≤ ~1.64 s of audio
+  per generator call at 40 kHz**. Applio's whole-file padding (t_pad = ±1.0 s)
+  therefore fails on MPS at every chunk size (0.1–1.0 s), and ±0.5 s context
+  kills the 1.0 s window. The C3 chunker must keep window + 2·context
+  ≤ ~1.5 s; slimmer context also saves 20–30 ms of compute per chunk.
+- Cost anatomy: RMVPE and the generator scale with window size (incl. context);
+  faiss and ContentVec are nearly flat; larger context pads inflate f0/
+  embed/gen proportionally (±0.5 s context vs ±0.25 s ≈ +20–30 ms total).
+- Generous CPU headroom remains (faiss + RMVPE preprocessing are
+  single-threaded on macOS by Applio's OMP_NUM_THREADS=1 default).
+
+Preset mapping to adopt (revised from measurements):
+| Preset | Window | Context | Est. e2e | Note |
+|---|---|---|---|---|
+| Fast | 0.1 s | ±0.25 s | ~200–220 ms | meets target zone; under 300 ms ceiling |
+| Balanced | 0.25 s | ±0.25 s | ~380 ms | above old 300 ms ceiling — trim via context/optimization or accept |
+| Quality | 0.5–1.0 s | ±0.25 s | ~460–570 ms | streaming/relaxed use only |
+
+Open before committing the Fast preset: **0.1 s windows are unmeasured for
+quality** (f0 smoother + index retrieval get less audio to work with) —
+audition before locking.
 
 ## 5. Platform strategy
 
@@ -127,9 +174,11 @@ sources that need it. Quality criteria: solo speech, decent audio quality.
 Choosing source material / ranges is the only manual step; everything after
 (slicing, resampling, denoising) is delegated to RVC's dataset prep.
 
-**Current next step:** fine-tuning the pretrained RVC model is done
-(first run 2026-11-05, "Creating a voice" flow §6; verdict acceptable as
-trained). Next: measure chunked inference latency on MPS against the §4.2
-budget — decides CPU/MPS viability before per-platform work starts.
-Cutlist growth past 20 min (§6) stays a parallel task for a later
-comparison run.
+**Current next step:** chunked MPS latency is measured (§4.2.1): real-time
+viable, but Fast-preset viability hinges on **auditioning 0.1 s windows for
+quality** (f0 smoother and index retrieval degrade with short chunks —
+unmeasured so far) before locking the window size, then writing the **C3
+chunker design doc** (window/context/crossfade choices plus the MPS
+≤ 65536-sample decoder limit). CPU/MPS decisiveness is settled; per-platform
+work may start after that. Cutlist growth past 20 min (§6) stays a parallel
+task for a later comparison run.

@@ -1,0 +1,23 @@
+{
+  "args": {
+    "windows": "0.1,1.0",
+    "reps": 2,
+    "warmup": 1,
+    "model": "/Users/sar/projects/voice-changer/data/gvs/models/gvs/gvs_100e_2700s.pth",
+    "index": "/Users/sar/projects/voice-changer/data/gvs/models/gvs/gvs.index",
+    "audio": "/Users/sar/projects/voice-changer/data/gvs/selected/yfdtmEbu8OA_3-.59-.38_4-.01-.30.wav",
+    "index_rate": 0.75,
+    "pad": 1.0,
+    "device": null,
+    "json": "/Users/sar/projects/voice-changer/scripts/results/bench-pad10.json"
+  },
+  "device": "mps",
+  "results": {
+    "0.1": {
+      "failed": "Output channels > 65536 not supported at the MPS device. "
+    },
+    "1": {
+      "failed": "Output channels > 65536 not supported at the MPS device. "
+    }
+  }
+}
