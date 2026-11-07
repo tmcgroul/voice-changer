@@ -150,3 +150,26 @@ index-rate 0.75, context ±0.25 s. Raw JSON: `data/gvs/benchmarks/`.
 **Next:** audition 0.1 s-window chunks (single-variable vs Run 1 whole-file
 rendition) to lock the Fast preset window size, then write the C3 chunker
 design doc (window/context/crossfade + the ≤65536-sample decoder limit).
+
+## Audition (pending owner verdict)
+**2026-11-07 — window size: 0.1 s chunks vs whole file (Fast-preset quality gate)**
+
+Single variable = chunking scheme (§4.2.1's open question). Same clip, model
+`gvs_100e_2700s.pth`, rmvpe, index-rate 0.75, protect 0.5; **both rendered on
+CPU** (Applio's whole-file path can't run on MPS at >1.64 s output — see §4.2.1
+finding 2 — and device must not be the A/B variable).
+
+- Source: `~/ma-voice.m4a` (6.66 s, owner's fresh recording) → clean copy
+  `data/gvs/audition/ma-voice.wav`.
+- A: `data/gvs/audition/rendA-whole.wav` — one pass, Applio whole-file
+  pipeline (`scripts/render-audition.py --mode whole`).
+- B: `data/gvs/audition/rendB-win010.wav` — 0.1 s windows, hop = window,
+  context ±0.25 s stitched back (`--mode chunked --window 0.1`).
+- Automated seam check: RMS diff at 0.1 s boundaries vs within-chunk frames —
+  same magnitude (p95 3.23 vs 3.39 rel-diff), zero-crossing profiles match →
+  no obvious clicks; repeatable numbers live in the script.
+
+Owner verdict: **pending**.
+- If B ≈ A → lock Fast preset = 0.1 s windows; next: C3 chunker design doc.
+- If B audibly worse → 0.1 s out; candidates: 0.25 s windows (est. ~380 ms e2e,
+  over ceiling), compute trim (FCPE f0, slimmer context), or accept.
