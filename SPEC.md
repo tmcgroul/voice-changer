@@ -166,7 +166,9 @@ use it in real time.
 *All data for one voice lives in one folder* (voice-first layout):
 `data/<voice>/` with `cutlist.txt` (curated time ranges), `raw/` (full source
 downloads, kept for re-cutting), `selected/` (curated wavs — the folder that goes
-into RVC WebUI dataset prep), `models/` (fine-tuned .pth output). The workflow is
+into RVC WebUI dataset prep), `models/` (fine-tuned .pth output),
+`benchmarks/` (voice-specific measurement outputs, e.g. §4.2.1 latency
+JSONs), `audition/` (models + renditions used for hearing tests). The workflow is
 driven by one script + its cutlist (`scripts/extract-audio.sh`): a URL line starts
 a video section; the `START END` lines below it are the kept ranges; a section
 with no ranges uses the whole video. `--demucs` strips music/noise first for
