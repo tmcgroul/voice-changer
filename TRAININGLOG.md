@@ -115,51 +115,37 @@ accepted for now — no further tuning of Run 1.
   memory, ~0.6–0.8× realtime whole-file MPS inference as noted.
 
 ## Benchmark notes (not a training run; uses the Run 1 model)
-**2026-11-05 — Chunked real-time inference latency on MPS (SPEC §4.1 C3 / §4.2)**
+**2026-11-05 — Chunked real-time inference latency on MPS (SPEC §4.2.1)**
 
-- Harness: `scripts/bench-rvc.py` — times Applio's own inference internals
-  (`rvc/infer/pipeline.py`: `get_f0`/RMVPE, ContentVec forward, faiss
-  `_retrieve_speaker_embeddings`, `net_g.infer`), stage by stage, per chunk;
-  only the meters are local (C7 discipline). n=25 timed chunks per window
-  size after 5 discarded warm-up chunks; larger window-size JSONs under
-  `data/gvs/benchmarks/`.
-- Machine: Apple M3 Pro (12 cores, 36 GB), macOS 14.6.1, torch MPS FP32;
-  same box as Run 1. Input: tiled speech from
-  `data/gvs/selected/yfdtmEbu8OA_3-.59-.38_4-.01-.30.wav` (the known-good
-  A/B diagnostic file), trimmed to window + context; index-rate 0.75
-  (whole-file whole-pipeline settings).
+Method: `scripts/bench-rvc.py` times Applio's own inference internals stage
+by stage (RMVPE f0, ContentVec, faiss retrieval, `net_g.infer`; only the
+meters are local — C7 discipline). n=25 timed chunks/window after 5 warm-up
+chunks. Machine: M3 Pro (12 cores, 36 GB), macOS 14.6.1, MPS FP32, same box
+as Run 1. Input: tiled speech from `yfdtmEbu8OA_3-.59-.38_4-.01-.30.wav`,
+index-rate 0.75, context ±0.25 s. Raw JSON: `data/gvs/benchmarks/`.
 
-| window | context | f0 (RMVPE) | embed | faiss | generator | **total p95** | RTF p95 |
-|---|---|---|---|---|---|---|---|
-| 0.1 s | ±0.25 s | 22 ms | 8 ms | 3 ms | 37 ms | **69 ms** | 0.69× |
-| 0.25 s | ±0.25 s | 27 ms | 9 ms | 3 ms | 43 ms | **81 ms** | 0.32× |
-| 0.5 s | ±0.25 s | 29 ms | 10 ms | 4 ms | 51 ms | **92 ms** | 0.18× |
-| 1.0 s | ±0.25 s | 33 ms | 13 ms | 5 ms | 70 ms | **120 ms** | 0.12× |
+| window | f0 (RMVPE) | embed | faiss | generator | **total p95** | RTF p95 |
+|---|---|---|---|---|---|---|
+| 0.1 s | 22 ms | 8 ms | 3 ms | 37 ms | **69 ms** | 0.69× |
+| 0.25 s | 27 ms | 9 ms | 3 ms | 43 ms | **81 ms** | 0.32× |
+| 0.5 s | 29 ms | 10 ms | 4 ms | 51 ms | **92 ms** | 0.18× |
+| 1.0 s | 33 ms | 13 ms | 5 ms | 70 ms | **120 ms** | 0.12× |
 
-(columns: mean / p95 / max over timed chunks; extra ±0.5 s-context sweep
-saved in `data/gvs/benchmarks/bench-pad05.json`, consistent +20–30 ms.)
+(columns: mean/p95/max over timed chunks; a ±0.5 s-context sweep in
+`bench-pad05.json` shows +20–30 ms.)
 
 **Findings**
-1. Sustained chunk throughput is real-time on MPS with room: RTF 0.12–0.69.
-   The older 0.6–0.8× whole-file figure included model load (≈10 s once) and
-   a whole-file f0 pass — chunk-scale numbers after warm-up are much better.
-2. **MPS hard limit discovered:** generator (HiFi-GAN decoder) output length
-   = conv1d output channels; MPS supports ≤ 65536 channels → maximum ~1.64 s
-   of audio per generator call at 40 kHz. Consequence: Applio's whole-file
-   context padding (t_pad = ±1.0 s per side) **cannot run chunked on MPS at
-   all** (fails from 0.1 s chunks up; ±0.5 s context additionally kills the
-   1.0 s window). The chunker (C3) must keep window + 2·context ≤ ~1.5 s.
-3. End-to-end latency is dominated by chunk accumulation: a chunked core
-  can't start before the whole window is captured, so e2e ≈ window + compute +
-   I/O buffers (≈ 30 + 25 ms) ≈ 220 ms @0.1 s, ≈ 380 ms @0.25 s, ≈ 470 ms
-   @0.5 s. The 150–200 ms target ⇒ 0.1 s windows is the only knob in range
-   on this hardware; 0.25 s sits just over the 300 ms ceiling.
-4. Stage anatomy: RMVPE and generator scale with window+context; faiss and
-   ContentVec nearly flat. No CUDA-only blockers hit on the
-   `rvc.infer` path; Applio's `rvc/realtime` path (CUDAGraph/fp16) remains
-   off-limits for MPS but wasn't needed for the measurement.
-5. Not yet measured: with a live audio loop (C1/C4 buffers), true wall
-   latency; 10 s–window quality (the next audition); CPU device comparison.
+1. Real-time on MPS with room (RTF 0.12–0.69); the older 0.6–0.8× whole-file
+   figure included model load + full-file f0 and no longer applies.
+2. **MPS hard limit:** generator output = conv1d channels ≤ 65536 → max
+   ~1.64 s of audio per call @40 kHz; Applio's ±1.0 s padding fails on MPS
+   at every chunk size (±0.5 s additionally kills 1.0 s windows). Chunker
+   (C3) must keep window + 2·context ≤ ~1.5 s.
+3. e2e ≈ window + compute + I/O ≈ 220 ms @0.1 s, ~380 ms @0.25 s → the
+   150–200 ms target requires 0.1 s windows on this hardware.
+4. No CUDA-only blockers on the `rvc.infer` path (`rvc/realtime` remains
+   CUDA-only, untouched). Not yet measured: live-loop wall latency,
+   short-window quality (next audition), CPU device comparison.
 
 **Next:** audition 0.1 s-window chunks (single-variable vs Run 1 whole-file
 rendition) to lock the Fast preset window size, then write the C3 chunker
