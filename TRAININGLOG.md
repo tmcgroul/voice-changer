@@ -173,3 +173,8 @@ Owner verdict: **pending**.
 - If B ≈ A → lock Fast preset = 0.1 s windows; next: C3 chunker design doc.
 - If B audibly worse → 0.1 s out; candidates: 0.25 s windows (est. ~380 ms e2e,
   over ceiling), compute trim (FCPE f0, slimmer context), or accept.
+
+**Owner verdict (listened 2026-11-07): B (0.1 s windows) ILLEGIBLE — rejected.**
+Fast preset at 0.1 s windows is out. Next listening round: 0.25 s and 0.5 s
+windows (same renderer, single-variable again) to find the smallest acceptable
+window before locking a preset.
