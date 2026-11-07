@@ -90,7 +90,7 @@ commercial product's bloat or subscription.
 
 Chunked per-stage timing through Applio's own inference paths
 (`scripts/bench-rvc.py`, n=25 chunks/row, p95 after 5 warm-up chunks;
-full JSON in `scripts/results/`). Context = audio padded on both sides for
+full JSON in `data/gvs/benchmarks/`). Context = audio padded on both sides for
 the f0/embedding pass (same op their whole-file path performs):
 
 | window | context | RMVPE f0 | ContentVec | faiss | generator | total p95 | RTF | est. e2e* |

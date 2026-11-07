@@ -122,7 +122,7 @@ accepted for now — no further tuning of Run 1.
   `_retrieve_speaker_embeddings`, `net_g.infer`), stage by stage, per chunk;
   only the meters are local (C7 discipline). n=25 timed chunks per window
   size after 5 discarded warm-up chunks; larger window-size JSONs under
-  `scripts/results/`.
+  `data/gvs/benchmarks/`.
 - Machine: Apple M3 Pro (12 cores, 36 GB), macOS 14.6.1, torch MPS FP32;
   same box as Run 1. Input: tiled speech from
   `data/gvs/selected/yfdtmEbu8OA_3-.59-.38_4-.01-.30.wav` (the known-good
@@ -137,7 +137,7 @@ accepted for now — no further tuning of Run 1.
 | 1.0 s | ±0.25 s | 33 ms | 13 ms | 5 ms | 70 ms | **120 ms** | 0.12× |
 
 (columns: mean / p95 / max over timed chunks; extra ±0.5 s-context sweep
-saved in `scripts/results/bench-pad05.json`, consistent +20–30 ms.)
+saved in `data/gvs/benchmarks/bench-pad05.json`, consistent +20–30 ms.)
 
 **Findings**
 1. Sustained chunk throughput is real-time on MPS with room: RTF 0.12–0.69.
