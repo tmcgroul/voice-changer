@@ -3,13 +3,13 @@
     "windows": "0.1,0.25,0.5,1.0",
     "reps": 25,
     "warmup": 5,
-    "model": "/Users/sar/projects/voice-changer/data/gvs/models/gvs/gvs_100e_2700s.pth",
-    "index": "/Users/sar/projects/voice-changer/data/gvs/models/gvs/gvs.index",
-    "audio": "/Users/sar/projects/voice-changer/data/gvs/selected/yfdtmEbu8OA_3-.59-.38_4-.01-.30.wav",
+    "model": "data/gvs/models/gvs/gvs_100e_2700s.pth",
+    "index": "data/gvs/models/gvs/gvs.index",
+    "audio": "data/gvs/selected/yfdtmEbu8OA_3-.59-.38_4-.01-.30.wav",
     "index_rate": 0.75,
     "pad": 0.25,
     "device": null,
-    "json": "/Users/sar/projects/voice-changer/scripts/results/bench-pad025.json"
+    "json": "scripts/results/bench-pad025.json"
   },
   "device": "mps",
   "results": {

@@ -257,14 +257,16 @@ def main():
           "RTF = compute ms ÷ window ms (p95).")
 
     if args.json:
+        # Record paths relative to the repo so results stay machine-independent.
+        def rel(v):
+            return os.path.relpath(v, REPO) if isinstance(v, str) and os.path.isabs(v) and v.startswith(REPO) else v
+        recorded = {k: rel(v) for k, v in vars(args).items()}
         with open(args.json, "w") as f:
-            json_obj = {
-                "args": {k: v for k, v in vars(args).items()},
+            json.dump({
+                "args": recorded,
                 "device": cfg.device,
                 "results": results,
-            }
-            import json as _json
-            _json.dump(json_obj, f, indent=2)
+            }, f, indent=2)
         print(f"\nfull results -> {args.json}")
 
 
