@@ -124,6 +124,23 @@ Preset mapping, revised from measurements (context ±0.25 s):
 Open before committing Fast: **0.1 s windows are unmeasured for quality**
 (f0 smoother + index retrieval get less audio) — audition before locking.
 
+#### 4.2.2 Live smoke test (2026-11-07): real-time confirmed, engine adopted
+
+A live browser session through Applio's existing realtime tab (streaming
+worker on MPS, FP32, with CPU fallback) produced usable live conversion,
+equal-or-near-equal quality at 100 vs 250 ms chunks, and slightly robotic
+timbre — verdicts in TRAININGLOG.md "Benchmark notes". Consequences:
+
+- **C3 decision: adopt/wrap Applio's realtime engine** (worker, SOLA +
+  phase-vocoder crossfade, VAD, hot-swap, MPS fallback) instead of building
+  a chunker from scratch — same reuse stance as C7.
+- Speed is settled; **quality is the frontier**: the robotic tone belongs to
+  the fine-tune stage (next milestone), not the real-time plumbing.
+- The naive edge-stitched audition renderer's harsh short-window verdicts
+  are partly stitching artifacts; controlled A/B fallback only.
+- Presets stay provisional until a scripted loopback latency measurement
+  lands (deferred; the 100 ms chunk knob already reduced perceived delay).
+
 ## 5. Platform strategy
 
 Cross-platform (Windows, macOS, Linux) is a project goal, but **v0 targets macOS only**
@@ -165,11 +182,12 @@ sources that need it. Quality criteria: solo speech, decent audio quality.
 Choosing source material / ranges is the only manual step; everything after
 (slicing, resampling, denoising) is delegated to RVC's dataset prep.
 
-**Current next step:** chunked MPS latency is measured (§4.2.1): real-time
-viable, but Fast-preset viability hinges on **auditioning 0.1 s windows for
-quality** (f0 smoother and index retrieval degrade with short chunks —
-unmeasured so far) before locking the window size, then writing the **C3
-chunker design doc** (window/context/crossfade choices plus the MPS
-≤ 65536-sample decoder limit). CPU/MPS decisiveness is settled; per-platform
-work may start after that. Cutlist growth past 20 min (§6) stays a parallel
-task for a later comparison run.
+**Current next step:** real-time viability is settled (§4.2.1 bench +
+§4.2.2 live smoke test; C3 = adopted Applio realtime engine). Next
+milestone: **fine-tune quality round 2** — improving the slightly robotic
+tone of the current voice. Plan ties into §6: grow the cutlist toward
+20+ min, optionally clean source click/fan noise (`adeclick`/`afftdn` in
+extract-audio.sh, designed but not implemented), retrain, and A/B against
+Run 1 renditions (one-variable, TRAININGLOG discipline). Parallel later
+tasks: scripted loopback latency measurement to lock the §4.2 presets;
+C5 virtual mic (system-wide output) when audio-shell work starts.

@@ -178,3 +178,50 @@ Owner verdict: **pending**.
 Fast preset at 0.1 s windows is out. Next listening round: 0.25 s and 0.5 s
 windows (same renderer, single-variable again) to find the smallest acceptable
 window before locking a preset.
+
+**Owner verdict round 2 (2026-11-07):** `rendC-win025` still "sucks";
+`rendD-win05` intelligible (actual words audible). => with this renderer
+(no crossfade, edge-to-edge stitching), the window floor is ~0.5 s.
+
+Open question before raising the floor: how much of the short-window
+damage is stitching vs f0/embedding quality? Next single-variable test:
+crossfade/overlap-add at a fixed window (0.25 s) vs rendC (same window,
+no crossfade).
+(Note per owner: while tweaking audition parameters, don't commit every
+change; batch meaningful commits only.)
+
+**Live smoke test via Applio's own realtime tab (not a script round)**
+Same session. Model served from `external/Applio/logs/gvs/` (copies of the
+Run 1 pth + index). Streaming worker ran on **MPS** (`Realtime computation
+device: mps (FP32)`, `Realtime is ready!`, no per-block errors; non-fatal
+torchfcpe debug noise in the log). The tab's record-test path ran into the
+same MPS 65536-sample wall on its whole-file component and **auto-fell back
+to CPU** (22.4 s for the recorded clip) — the Tw6pre-bench finding applied by
+their own fallback logic (`is_mps_error`), pattern confirmed in the wild.
+
+Owner verdicts:
+- Quality live: **overall OK, slightly robotic timbre** — parked as fine-tune
+  quality work (ties into the Run 1 "extra noise" defect family; the plan is
+  improving content of fine-tuning: cutlist growth / cleanup, not architecture).
+- Latency: default chunk 250 ms = "noticeable pause"; chunk 100 ms reduced
+  delay with **equal or near-equal quality**. Remaining knobs identified but
+  not tuned by ear: crossfade overlap (0.05 s), extra conversion context
+  (2.5 s/block), playback buffer. Objective loopback latency measurement is
+  the prerequisite for locking presets (deferred).
+
+**Session conclusions (2026-11-07, real-time milestone)**
+1. Real-time RVC conversion is **usable on this hardware today** via Applio's
+   existing realtime engine — no need to build a C3 chunker from scratch.
+   Decision: C3 = wrap/adopt Applio realtime engine (worker, SOLA +
+   phase-vocoder crossfade, VAD, hot-swap), the same "reuse the tooling"
+   stance C7 already takes.
+2. Speed is settled (§4.2.1 bench + live confirmation); **quality is the
+   frontier**: robotic tone/fine-tune stage is the next improvement target.
+3. The edge-stitched audition grid (0.1/0.25/0.5 s without blending) stays
+   valuable as a controlled diagnostic renderer, but its harsh verdicts are
+   partly stitching, not window-size alone — the live engine with proper
+   crossfade sounded acceptable where the naive renderer did not.
+4. Deferred: scripted loopback latency measurement, preset locking, C5
+   virtual mic.
+
+Applio relaunch: `cd external/Applio && ./run-applio.sh --client` → Realtime tab.
