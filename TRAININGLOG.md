@@ -27,6 +27,80 @@ Next-tune ideas:  (what to change next run and why)
 
 ---
 
+### Run 2: gvs (trimmed + silence anchor) — 2026-11-09
+
+**Environment:** same as Run 1 (Applio main, 40k v2 pretrain, MPS); venv
+rebuilt 2026-11-09 after the venv was found stale (old `third_party/` path
+from before the repo move — recreated, requirements reinstalled,
+prerequisites ~2 GB still cached).
+
+**What Run 2 changes vs Run 1 (two dataset-composition changes, one
+"silence policy" theme):** (1) quiet-gap trimming applied to every cut
+(−60 dB / ≥0.25 s / keep 0.08 s — owner-approved by listening to discarded
+streams, see diagnostic above); dataset 9.4 → 6.9 min pre-slice;
+(2) `--include-mutes 10` (30 s silence anchor vs the default 6 s).
+Voice-affecting DSP: none (no denoiser — owner rejected all variants).
+Pre-trim copies of all 9 clips kept at `data/gvs/selected-run1/`;
+Run-1 checkpoints + index kept at `data/gvs/models/gvs-run1/`.
+
+**Dataset:** same 9 clips, `data/gvs/selected/` (trimmed).
+**Train settings:** 100 epochs, batch 8, rmvpe, MPS, faiss (unchanged).
+**MPS patch:** first attempt CRASHED at the epoch-24 evaluation render —
+`NotImplementedError: Output channels > 65536 not supported at the MPS
+device` inside the tensorboard reference render (`net_g.infer(*reference)`,
+triggers only when `epoch % save_every_epoch == 0`); Run 1 got through only
+because its random reference segments were short. Patch applied in
+`external/Applio/rvc/train/train.py`: the eval render try/excepts the MPS
+error and falls back to a one-off CPU deepcopy render (training loop
+untouched; same patch survives epoch 25 in the restarted run). ~24 epochs
+of the crashed attempt were lost (no checkpoint existed); restarted fresh.
+**Timing:** extract ≈ 1 min; train ≈ 44 s/epoch (same as Run-1 pace),
+~74 min for 100 epochs; ~24 epochs lost to the first attempt's eval crash.
+**Loss track:** 16.70 (ep 14, first attempt — restarted) → 14.14 (ep 42)
+→ 12.44 best @ ep 79, flat to ep 100. Loss numbers are not comparable
+across runs/datasets (see one-off notes); shape-wise the plateau lands
+earlier (ep ~42–79) than Run 1's ep 56, consistent with the smaller,
+trimmed dataset.
+**Checkpoints kept:** `data/gvs/models/gvs/` — `gvs_25e_700s.pth`,
+`gvs_50e_1400s.pth`, `gvs_75e_2100s.pth`, `gvs_100e_2800s.pth` +
+`gvs.index` (fresh — no Run-1 resume; Run-1 training state archived at
+`data/gvs/models/gvs-run1/`).
+**Output model:** `data/gvs/models/gvs/gvs_100e_2800s.pth` + `gvs.index`
+(copies served to `external/Applio/logs/gvs/`).
+**Audition (closed 2026-11-10):** rendered (same renderer/settings as
+Run 1: chunked 0.25 s, MPS, rmvpe, index-rate 0.75): (a) pause/voice test
+pair through r1 and r2 models (`data/gvs/audition/noisetest/
+o_r{1,2}_{pause,voice}.wav`); (b) full-clip reconstructions
+`data/gvs/audition/o_r{1,2}-rtA_3-.59.wav`; single-file loudness-matched
+A/Bs: `noisetest/AB1-pause-r1-then-r2.wav`, `AB2-voice-r1-then-r2.wav`.
+**Owner verdicts:** Convert-page overall: "almost identical to the old
+one" — no audible noise improvement, no regression. Pause A/B file:
+"sounds like shit, can't even understand the resulted audio" — note the
+pause file is a converted *pause* (no speech input, so the output is the
+noise bed itself, by design — it is a diagnostic, not a usability sample);
+owner could not hear an improvement in it. **Run-2 conclusion: the
+silence-policy changes (trim + 30 s mutes) did not audibly reduce the
+noise bed**; dataset growth (Round 3) is the remaining lever for it.
+**Parameter matrix verdict:** fcpe + protect + rms variants "best results"
+(see follow-up for exact values baked into defaults).
+**Parameter matrix (owner ear verdict pending):** render-audition.py
+extended with the Convert-page knobs (--protect/--rms-mix-rate/--f0-method/
+--cleanup-mode on CPU whole-file); 9 variants of a 12-s reference segment
+rendered to `data/gvs/audition/params/v-*.wav` with listening guide
+`LISTEN.md` (protect 0.35/0.25, rms 0.75/0.50, fcpe, crepe, light cleanup,
+DFN3 input cleanup). Cleanup modes act on INPUT only — cannot fix the
+model-generated bed (noted in guide).
+**Next-tune ideas:** (1) Round 3 = cutlist growth: 12 draft 3-min blocks
+(≈36 min, speech-dense zone 4:05–5:05, same recording chain) drafted at
+`data/gvs/cutlist-round3-proposal.txt` — owner curates by ear, then extract
++ retrain (silence policy stays). (2) Structural fallbacks if Rounds 2–3
+plateau: `spin-v2` embedder fine-tune (different speaker-feature extractor;
+off-distribution risk) or the unused `refinegan` pretrained pair as
+vocoder base (untested quality path). (3) Click pass (`adeclick`) as its
+own one-variable round only if clicks survive the trimming.
+
+---
+
 ### Run 1: gvs — 2026-11-05
 
 **Base model:** RVC v2 pretrained pair `f0G40k.pth` + `f0D40k.pth` (40 kHz,
@@ -225,3 +299,88 @@ Owner verdicts:
    virtual mic.
 
 Applio relaunch: `cd external/Applio && ./run-applio.sh --client` → Realtime tab.
+
+## Diagnostic — where does the "fan noise" in live output come from?
+**2026-11-09 — pause/noise-floor A/B (no retraining; dataset-side question)**
+
+Trigger: owner's live realtime session — fan-like noise audible in output even
+while mic input was silent. Follows Run 1's unresolved "extra additive noise"
+hyper-norm (audition A/B had ruled out index-rate and epochs).
+
+Method: `scripts/noise-floor-report.py` builds 4 test inputs from a real 3.8 s
+pause (fan noise present) / digital silence / pause→silence / speech of clip
+`yfdtmEbu8OA_3-.59-.38_4-.01-.30.wav`, renders each through (a) gvs_100e_2700s
+index-rate 0.75, (b) a wrapped stock base pretrain (`rvc/models/pretraineds/
+hifi-gan/f0G40k.pth` + metadata from the gvs checkpoint → `logs/base-
+pretrained.pth`, index-rate 0) — chunked 0.25 s windows, MPS. All rendition
+files in `data/gvs/audition/noisetest/` (in_* = inputs, o_* = outputs);
+spectrogram PNGs alongside; numbers reproducible via the script.
+
+| file | floor dBFS | character |
+|---|---|---|
+| in_pause (source) | −70 | fan hash, 200–800 Hz peak |
+| o_gvs_pause | −84/−64 med | **same noise** at matched level/spectrum |
+| o_gvs_sil (input = zeros) | −76 | model **still emits** a low-mid hash bed, fan-shaped band profile |
+| o_gvs_pause_sil (pause then zeros) | −75 after 1 s | floor drops to a steady −75 bed, stays constant |
+| o_base_sil | −33 | base pretrain emits a much louder low-rumble bed (50–200 Hz) |
+| o_base_pause | −33/−25 med | base invents loud ambient on noise-only input |
+
+Verdict (pending owner listening pass over noisetest/):
+1. **The fine-tuned model synthesizes the floor during true silence** — it
+   cannot be input leakage. Its spectral shape matches the source fan band
+   (200–800 Hz emphasis), so the fine-tune learned the dataset's constant
+   broadband floor as the "quiet state of this voice". This closes the
+   dataset-noise suspect: it is in the model now; only dataset-side cleanup +
+   retrain removes it (inference knobs confirmed irrelevant, again).
+2. But a silence bed is **partly architectural**: the stock base pretrain
+   emits an even louder bed (−33 dBFS, rumble-weighted). Cleanup should make
+   the bed quieter/more neutral, not zero.
+3. On real pauses the gvs model reproduces the source fan noise pass-through
+   style — so pauses in converted speech keep their exact room signature.
+
+Consequences: implement planned source cleanup (`adeclick`/`afftdn` chain in
+extract-audio.sh, high-pass first), retrain, A/B renditions' pause floors;
+short-term live usability lever = output noise gate (masks bed between
+phrases, does nothing for noise riding on speech).
+
+**Follow-up A (2026-11-09 later same day): owner listened and rejected ALL
+denoising** — auditioned on 20-s snippet of `yfdtmEbu8OA_4-.08-.16_4-
+.09-.30.wav`: high-pass-only ≈ no difference; afftdn10 = underwater;
+RNNoise std = spontaneous artifacts + robotic voice; RNNoise mp = weird
+intra-word pauses; RNNoise+afftdn6 = voice changed. No denoiser variant
+acceptable. Conclusion: any per-sample DSP over speech is off the table
+for this use case; attack noise only via *dataset composition*.
+
+**Follow-up B (same day): quiet-gap trimming — auditioned and approved.**
+Mechanism: instead of denoising (rejected in Follow-up A), *remove quietly
+noisy time spans from the dataset*: ffmpeg `silenceremove` deletes stretches
+whose RMS stays below a threshold for ≥0.25 s (keeping 0.08 s of natural
+gap). Measured levels on two clips: source fan floor −66..−70 dBFS, quiet
+voice segments −59..−64 — a usable gap between them. Threshold ladder
+auditioned by ear on kept files + "discarded" (removed-spans-only) audit
+streams. Owner verdicts: −48 dB removes quiet voice moments; **−60 dB is
+approved** on both clips (discarded streams = fan noise + clicks only,
+speech intact). Wire-up: `extract-audio.sh` now trims every new cut
+(constants TRIM_DB/TRIM_GAP/TRIM_KEEP = −60/0.25/0.08) and `--retrim`
+applies the identical pass to existing wavs idempotently.
+
+**Round-2 change set (dataset-side "silence policy" round):**
+1. Apply the approved trim to all selected clips (`--retrim`).
+2. Raise the silence anchor: `fine-tune.sh` passes `--include-mutes 10`
+   to the extract stage (30 s of true-silence supervision vs the default
+   6 s; knob exists to counteract the bed; keep at 2 or omit to isolate
+   variables if a round needs it separately).
+3. Cutlist growth toward 20+ min remains a separate round (as planned in
+   §6/Run-1 next-tune ideas).
+Round-2 audition gate, same as Run 1: renditions fed back through the
+model, owner listens for the extra-noise defect; note the deleted spans
+are the same place clicks were, so a click pass (`adeclick`) may come
+later as a separate one-variable round.
+
+**Tool note (same day): rerun bug fixed in extract-audio.sh** — listed
+ranges were only counted when *newly cut*, so a rerun with all ranges
+already on disk fell through to the whole-video path and cut 5 h of
+`_full.wav` spuriously (exposed by the first --retrim run; spurious file
+deleted, counter now tracks listed ranges, two clean reruns verified).
+Also wired: `fine-tune.sh --include-mutes N` pass-through to the extract
+stage (core.py accepts 0–10, default 2).

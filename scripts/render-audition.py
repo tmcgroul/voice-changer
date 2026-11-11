@@ -44,6 +44,15 @@ ap.add_argument("--index", default=DEFAULT_INDEX)
 ap.add_argument("--index-rate", type=float, default=0.75)
 ap.add_argument("--pitch", type=int, default=0)
 ap.add_argument("--device", choices=("mps", "cpu"), default=None)
+ap.add_argument("--protect", type=float, default=0.5,
+                help="Protect voiceless consonants (0..0.5; UI knob)")
+ap.add_argument("--rms-mix-rate", type=float, default=1.0,
+                help="Volume envelope blend (0..1; UI knob)")
+ap.add_argument("--f0-method", default="fcpe", choices=("rmvpe", "fcpe", "crepe"),
+                help="Run-2 owner ear verdict: fcpe preferred (2026-11-10)")
+ap.add_argument("--cleanup-mode", default="off", choices=("off", "light", "speech"),
+                help="Input-stage audio cleanup (same as UI Audio cleanup)")
+ap.add_argument("--cleanup-strength", type=float, default=12)
 ARGS = ap.parse_args()
 # Resolve relative paths before Applio changes cwd out from under us.
 ARGS.src = os.path.abspath(ARGS.src)
@@ -93,6 +102,12 @@ def save(audio, note=""):
 
 
 if ARGS.mode == "whole":
+    # Optional input-stage cleanup (same helper the UI cleanup knob uses).
+    if ARGS.cleanup_mode != "off":
+        from rvc.lib.tools.audio_cleanup import cleanup_audio  # noqa: E402
+
+        src = cleanup_audio(src, 16000, ARGS.cleanup_mode, ARGS.cleanup_strength)
+        print(f"input cleanup: {ARGS.cleanup_mode} @{ARGS.cleanup_strength} dB")
     # Their whole-file path, verbatim (their defaults: peak-norm 0.99 etc.)
     audio_max = np.abs(src).max() / 0.95
     if audio_max > 1:
@@ -103,13 +118,13 @@ if ARGS.mode == "whole":
         sid=0,
         audio=src,
         pitch=ARGS.pitch,
-        f0_method="rmvpe",
+        f0_method=ARGS.f0_method,
         file_index=ARGS.index,
         index_rate=ARGS.index_rate,
         pitch_guidance=conv.use_f0,
-        volume_envelope=1.0,
+        volume_envelope=ARGS.rms_mix_rate,
         version=conv.version,
-        protect=0.5,
+        protect=ARGS.protect,
         f0_autotune=False,
         f0_autotune_strength=1.0,
         proposed_pitch=False,

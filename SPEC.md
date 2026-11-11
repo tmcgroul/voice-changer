@@ -1,6 +1,6 @@
-# Voice Changer — Project Specification (v0.3)
+# Voice Changer — Project Specification (v0.4)
 
-> Status: working spec (v0.3, 2026-11-05). Living document — updated as decisions are made.
+> Status: working spec (v0.4, 2026-11-09). Living document — updated as decisions are made.
 > Some product aspects are intentionally not yet defined (owner will specify later);
 > those are marked **[TBD]**. The TBDs do not block the current next step (§7).
 
@@ -182,12 +182,36 @@ sources that need it. Quality criteria: solo speech, decent audio quality.
 Choosing source material / ranges is the only manual step; everything after
 (slicing, resampling, denoising) is delegated to RVC's dataset prep.
 
+#### 6.1 Noise strategy for fine-tuning data (2026-11-09 decisions)
+
+Diagnosed: the fine-tuned model emits a learned "fan noise" floor during
+silence (TRAININGLOG diagnostic; A/B closed: index-rate and epoch count are
+not noise levers). Noise removal by denoising was auditioned by the owner
+on real clips and **rejected** — every denoiser variant (afftdn, RNNoise
+ward/soft, hybrid) either left noise or damaged the voice. Decisions:
+
+- **Quiet-gap trimming replaces denoising** as the dataset-side tool:
+  `extract-audio.sh` removes quiet spans (RMS < −60 dBFS for ≥0.25 s,
+  keeping 0.08 s gaps) from every cut — 2026-11-09 listener-approved on
+  two clips. Fan-floor "cold modality supervision" for the model comes
+  from pause-heavy material; trimming it out — not denoising the entire
+  audio — is the strategy. `--retrim` re-applies to existing wavs.
+- **Clean silence supervision for the model** — the mute-anchor knob:
+  `--include-mutes 10` at the extract stage (Applio's silence anchor,
+  30 s instead of default 6 s) — used in Run 2. The anchor is the only
+  training sample whose ground-truth output is true digital silence;
+  it is a companion to trimming, not a standalone fix (Run 2 verdict:
+  bed persisted).
+- The architectural noise floor (pretrain bed) is accepted as-is; no
+  inference-side tool can remove what the dataset was trained on.
+
 **Current next step:** real-time viability is settled (§4.2.1 bench +
-§4.2.2 live smoke test; C3 = adopted Applio realtime engine). Next
-milestone: **fine-tune quality round 2** — improving the slightly robotic
-tone of the current voice. Plan ties into §6: grow the cutlist toward
-20+ min, optionally clean source click/fan noise (`adeclick`/`afftdn` in
-extract-audio.sh, designed but not implemented), retrain, and A/B against
-Run 1 renditions (one-variable, TRAININGLOG discipline). Parallel later
-tasks: scripted loopback latency measurement to lock the §4.2 presets;
-C5 virtual mic (system-wide output) when audio-shell work starts.
+§4.2.2 live smoke test; C3 = adopted Applio realtime engine). **Run 2
+trained** (silence policy per §6.1: trimmed dataset + include-mutes 10;
+output `gvs_100e_2800s.pth`; Run-1 snapshots at `selected-run1/` and
+`models/gvs-run1/`); owner verdicts in: no audible noise improvement, no
+regression; parameter matrix winner f0=fcpe (protect/rms values pending).
+Later rounds (queued): cutlist growth toward 20+ min; click pass
+(`adeclick`) as its own round if still needed. Parallel later tasks:
+scripted loopback latency measurement to lock the §4.2 presets; C5
+virtual mic (system-wide output) when audio-shell work starts.

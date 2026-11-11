@@ -12,11 +12,26 @@ export LC_ALL=C
 # Usage:
 #   scripts/extract-audio.sh <voice> [cutlist-file] [--demucs]
 #                                          [--cookies-from-browser BROWSER]
+#                                          [--retrim]
 #
 # YouTube may bot-check yt-dlp; --cookies-from-browser chrome/safari/firefox
 # uses your browser's cookies in that case and is forwarded to yt-dlp.
 #
 # The cutlist defaults to data/<voice>/cutlist.txt.
+#
+# Quiet-gap trimming (result of 2026-11-09 listening tests, see
+# TRAININGLOG.md): every cut is passed through ffmpeg `silenceremove` so
+# stretches whose RMS stays below TRIM_DB for >= TRIM_GAP s are removed
+# (keeping TRIM_KEEP s of natural gap). Goal: the fine-tune must not learn
+# "this voice quiet = machine/fan noise at X level" from pause-heavy
+# material. Only quiet spans are touched; speech passes through untouched.
+# TRIM-* constants below are the approved settings; raise/lower TRIM_DB if
+# a future voice source has a different noise floor (audit a rendered
+# discarded stream by ear before trusting a new value).
+#
+# --retrim: re-apply the trimmer in-place to every wav already in
+# selected/ (for files cut before this feature, or after changing TRIM-*).
+# Idempotent: a second --retrim pass removes nothing further.
 #
 # You watch the source video(s) and note the time ranges where the target voice
 # speaks cleanly. Write them in the cutlist file like this:
@@ -51,6 +66,8 @@ export LC_ALL=C
 #   - Range cuts supersede whole-video cuts: if a section gains ranges, the
 #     stale <id>_full.wav is removed on the next run.
 #   - To re-cut a range, delete its wav and run again.
+#   - To re-trim existing wavs (e.g. after changing TRIM-*), run with --retrim.
+#   - --no-trim cuts without the trimmer (raw cuts; for A/B diffs).
 
 if [[ $# -lt 1 || $# -gt 3 ]]; then
     grep '^#' "$0" | head -n 40 | sed 's/^# \{0,1\}//;s/^#$//'
@@ -61,11 +78,25 @@ umask 022
 
 NAME=""
 DEMUCS=false
+RETRIM=false
+TRIM=true
 LIST=""
 COOKIES=()
+
+# Quiet-gap trimmer: approved by ear on clip yfdtmEbu8OA_* (2026-11-09).
+# -60 dB sits between the source noise floor (-66..-70 dBFS med across clips)
+# and quiet-voice moments (-59..-64), so pure-noise spans get removed while
+# soft speech survives. Audit streams before changing: see header comment.
+TRIM_DB=-60      # silence detection threshold (dBFS, RMS, 20 ms window)
+TRIM_GAP=0.25    # remove quiet stretches longer than this (seconds)
+TRIM_KEEP=0.08   # keep this much natural gap at each trim edge (seconds)
+TRIMFILTER="silenceremove=start_periods=1:start_threshold=${TRIM_DB}dB:start_silence=${TRIM_KEEP}:stop_periods=-1:stop_threshold=${TRIM_DB}dB:stop_duration=${TRIM_GAP}:stop_silence=${TRIM_KEEP}"
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --demucs) DEMUCS=true ;;
+        --retrim) RETRIM=true ;;
+        --no-trim) TRIM=false ;;
         --cookies-from-browser) COOKIES=(--cookies-from-browser "$2"); shift ;;
         *) if [[ -z "$NAME" ]]; then NAME=$1; elif [[ -z "$LIST" ]]; then LIST=$1
            else echo "error: extra argument: $1" >&2; exit 1; fi ;;
@@ -109,6 +140,18 @@ source_for() {
     fi
 }
 
+# apply the quiet-gap trimmer to a wav in-place (safe, idempotent)
+# --no-trim makes every call a no-op, leaving raw cuts untouched.
+trim_wav() {
+    local f=$1 tmp
+    $TRIM || return 0
+    tmp=$(mktemp "${f%.wav}_XXXXXXXX.wav")
+    mv "$tmp" "$tmp.wav"
+    ffmpeg -hide_banner -loglevel error -i "$f" -af "$TRIMFILTER" \
+        -vn -acodec pcm_s16le -y "$tmp.wav" < /dev/null
+    mv -f "$tmp.wav" "$f"
+}
+
 # run demucs on raw/<id>.<ext>, keep vocals as raw/<id>_vocals.wav
 demucs_to_vocals() {
     local id=$1 src
@@ -143,6 +186,7 @@ flush_section() {
             echo "==> no ranges listed: using whole video $cur_id"
             ffmpeg -hide_banner -loglevel error -i "$src" \
                 -vn -acodec pcm_s16le -y "$out" < /dev/null
+            trim_wav "$out"
             cut_files=$((cut_files + 1))
             total_new=$(awk -v s="$total_new" \
                 -v d="$(sec "$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$out")")" \
@@ -154,6 +198,11 @@ flush_section() {
 
 cut_range() {
     local start=$1 end=$2 id=$cur_id
+    # count *listed* ranges, not just new cuts: flush_section uses this to
+    # tell "ranges supersede whole video" — counting only new cuts made a
+    # rerun with everything-already-done falsely re-enable the whole-video
+    # cut (bug exposed 2026-11-09 by the first --retrim run).
+    cur_ranges=$((cur_ranges + 1))
     s=$(sec "$start"); e=$(sec "$end")
     local duration
     duration=$(awk -v s="$s" -v e="$e" 'BEGIN{printf "%.3f", e - s}' < /dev/null)
@@ -168,7 +217,7 @@ cut_range() {
     ffmpeg -hide_banner -loglevel error \
         -ss "$s" -t "$duration" -i "$src" \
         -vn -acodec pcm_s16le -y "$outfile" < /dev/null
-    cur_ranges=$((cur_ranges + 1))
+    trim_wav "$outfile"
     cut_files=$((cut_files + 1))
     total_new=$(awk -v s="$total_new" -v d="$duration" 'BEGIN{printf "%.2f", s+d}')
 }
@@ -209,6 +258,17 @@ while read -r line <&3 || [[ -n $line ]]; do
     cut_range "$start" "$end"
 done 3< "$LIST"
 flush_section
+
+# --retrim: re-apply the trimmer to every existing selected wav (in-place,
+# idempotent — assumes files were only ever produced by this script).
+if $RETRIM; then
+    retrimmed=0
+    for f in "$OUT"/*.wav; do [[ -f $f ]] || continue
+        trim_wav "$f"
+        retrimmed=$((retrimmed + 1))
+    done
+    echo "retrim: processed $retrimmed existing wavs"
+fi
 
 echo
 echo "cut: $cut_files new, $skipped_files already done -> $OUT/"
