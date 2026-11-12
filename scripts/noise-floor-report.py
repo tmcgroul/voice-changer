@@ -4,8 +4,9 @@
 Renders test inputs (real pause with fan noise / digital silence /
 pause->silence / speech) through the fine-tuned model and a wrapped base
 pretrained generator, then reports per-file frame-RMS floor and octave-band
-energy. Outputs live in data/gvs/audition/noisetest/; numbers printed below
-match the TRAININGLOG.md diagnostic entry (2026-11-09).
+energy. Outputs live in data/gvs/audition/noisetest/; the 2026-11-09 finding
+(the fine-tuned model reproduces the dataset's fan-noise floor even on
+digital silence; base pretrain emits a louder bed) is recorded in SPEC §6.1.
 
 Inputs are built by the same script from data/gvs/selected (idempotent).
 Renders require scripts/render-audition.py (Applio venv); wrapper checkpoint

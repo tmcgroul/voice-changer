@@ -1,6 +1,6 @@
-# Voice Changer — Project Specification (v0.4)
+# Voice Changer — Project Specification (v0.5)
 
-> Status: working spec (v0.4, 2026-11-09). Living document — updated as decisions are made.
+> Status: working spec (v0.5, 2026-11-13). Living document — updated as decisions are made.
 > Some product aspects are intentionally not yet defined (owner will specify later);
 > those are marked **[TBD]**. The TBDs do not block the current next step (§7).
 
@@ -89,8 +89,7 @@ commercial product's bloat or subscription.
 #### 4.2.1 Measured chunk latency (2026-11-05, M3 Pro MPS, gvs_100e_2700s.pth @40 kHz)
 
 Measured via Applio's own inference paths (`scripts/bench-rvc.py`, n=25
-chunks/row, p95 after warm-up; stage breakdown, method and full results in
-TRAININGLOG.md "Benchmark notes"; raw JSON in `data/gvs/benchmarks/`):
+chunks/row, p95 after warm-up; raw JSON in `data/gvs/benchmarks/`):
 
 | window | compute p95 | est. e2e* |
 |---|---|---|
@@ -129,7 +128,7 @@ Open before committing Fast: **0.1 s windows are unmeasured for quality**
 A live browser session through Applio's existing realtime tab (streaming
 worker on MPS, FP32, with CPU fallback) produced usable live conversion,
 equal-or-near-equal quality at 100 vs 250 ms chunks, and slightly robotic
-timbre — verdicts in TRAININGLOG.md "Benchmark notes". Consequences:
+timbre. Consequences:
 
 - **C3 decision: adopt/wrap Applio's realtime engine** (worker, SOLA +
   phase-vocoder crossfade, VAD, hot-swap, MPS fallback) instead of building
@@ -172,9 +171,12 @@ use it in real time.
 *All data for one voice lives in one folder* (voice-first layout):
 `data/<voice>/` with `cutlist.txt` (curated time ranges), `raw/` (full source
 downloads, kept for re-cutting), `selected/` (curated wavs — the folder that goes
-into RVC WebUI dataset prep), `models/` (fine-tuned .pth output),
-`benchmarks/` (voice-specific measurement outputs, e.g. §4.2.1 latency
-JSONs), `audition/` (models + renditions used for hearing tests). The workflow is
+into RVC WebUI dataset prep), `models/` (fine-tuned .pth output; each model
+directory may carry a `TRAININGLOG.md` — provenance-only record of the
+parameters and data that produced it, field list in README; deleting the
+model deletes its record with it), `benchmarks/` (voice-specific measurement
+outputs, e.g. §4.2.1 latency JSONs), `audition/` (models + renditions used
+for hearing tests). The workflow is
 driven by one script + its cutlist (`scripts/extract-audio.sh`): a URL line starts
 a video section; the `START END` lines below it are the kept ranges; a section
 with no ranges uses the whole video. `--demucs` strips music/noise first for
@@ -185,10 +187,13 @@ Choosing source material / ranges is the only manual step; everything after
 #### 6.1 Noise strategy for fine-tuning data (2026-11-09 decisions)
 
 Diagnosed: the fine-tuned model emits a learned "fan noise" floor during
-silence (TRAININGLOG diagnostic; A/B closed: index-rate and epoch count are
-not noise levers). Noise removal by denoising was auditioned by the owner
-on real clips and **rejected** — every denoiser variant (afftdn, RNNoise
-ward/soft, hybrid) either left noise or damaged the voice. Decisions:
+silence — it reproduces the source recordings' constant broadband floor even
+on digital-silence input, and the stock base pretrain emits a louder bed
+still (A/B via `scripts/noise-floor-report.py`; A/B closed: index-rate and
+epoch count are not noise levers). Noise removal by denoising was auditioned
+by the owner on real clips and **rejected** — every denoiser variant
+(afftdn, RNNoise ward/soft, hybrid) either left noise or damaged the voice.
+Decisions:
 
 - **Quiet-gap trimming replaces denoising** as the dataset-side tool:
   `extract-audio.sh` removes quiet spans (RMS < −60 dBFS for ≥0.25 s,

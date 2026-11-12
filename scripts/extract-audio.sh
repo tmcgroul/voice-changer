@@ -19,8 +19,8 @@ export LC_ALL=C
 #
 # The cutlist defaults to data/<voice>/cutlist.txt.
 #
-# Quiet-gap trimming (result of 2026-11-09 listening tests, see
-# TRAININGLOG.md): every cut is passed through ffmpeg `silenceremove` so
+# Quiet-gap trimming (result of 2026-11-09 listening tests, decision
+# recorded in SPEC §6.1): every cut is passed through ffmpeg `silenceremove` so
 # stretches whose RMS stays below TRIM_DB for >= TRIM_GAP s are removed
 # (keeping TRIM_KEEP s of natural gap). Goal: the fine-tune must not learn
 # "this voice quiet = machine/fan noise at X level" from pause-heavy

@@ -72,9 +72,22 @@ to strip vocals-only before cutting.
 
 Runs Applio's own pipeline (slice/resample → f0+embedder extraction →
 fine-tune) with the settings that worked here. Safe to Ctrl-C and rerun:
-training resumes from the latest checkpoint. **After each run (and its
-audition), append an entry to** [TRAININGLOG.md](TRAININGLOG.md) — its fixed
-per-run template is what makes successive trainings comparable. The result —
+training resumes from the latest checkpoint. **After each run, write
+`data/<voice>/models/<model>/TRAININGLOG.md`** next to the checkpoints —
+one provenance entry per model, with these fields:
+
+```
+Base model:       pretrained pair + rate + vocoder, checkpoint source
+Tool:             Applio commit, python, torch, repo-state notes (e.g. patches)
+Dataset:          source, #clips, total minutes, sr/channels, trimming, mutes
+Train settings:   epochs, batch, f0 method, device, index algorithm, save policy
+Timing:           preprocess / extract / train per-epoch + total
+Loss track:       start → best@epoch
+Checkpoints kept: paths
+Output model:     final pth + index path
+```
+
+The result —
 `data/<voice>/models/<voice>/<voice>_<N>e_<step>s.pth` plus the `.index`
 file under `generated/` — is a standard RVC model: load the pair into any
 RVC-compatible tool for conversion.
