@@ -16,24 +16,43 @@ two scripted steps: **download + curate**, then hand the result to **RVC's
 own tooling** for the rest — slicing, resampling, denoising are delegated,
 never reinvented here.
 
-### Data layout (voice-first)
+### Data layout: one folder per voice
 
-Everything for one voice lives in one folder:
+Every folder in `data/` is one self-sufficient voice — it holds everything
+that produced it, shares nothing, and deleting it deletes its entire history
+(SPEC §6):
 
 ```
 data/<voice>/
-  cutlist.txt   time ranges you select while watching (curated workflow only)
-  raw/          complete downloaded source audio (kept for re-cutting)
-  selected/     curated wavs — this folder goes into RVC dataset prep
-  models/       fine-tuned .pth output lands here (created empty)
+  cutlist.txt    time ranges you select while watching (curated workflow only)
+  raw/           complete downloaded source audio (kept for re-cutting)
+  selected/      curated wavs — this folder goes into RVC dataset prep
+  TRAININGLOG.md provenance record (one entry per run, written by fine-tune.sh)
+  <voice>_<N>e_<step>s.pth + .index      the fine-tuned model
+  checkpoints/   Applio workspace (extracted features, G/D checkpoints, ...)
 ```
+
+The voice name is yours to choose — `<voice>`, `<voice>-clean`,
+`<voice>-trimmed-mutes10` in the examples below; it carries no structure and
+implies no lineage. (Several folders may exist for one voice — a descriptor
+suffix distinguishes them.) Start a new voice from scratch, or seed it from
+an existing one when the dataset continues (`new-voice.sh --from` — an APFS
+clone on macOS: no extra disk until files diverge). Superseded voice folders
+are deleted manually after auditioning.
 
 Cutlists, recordings and models are git-ignored (see `.gitignore`): they are
 large, private, and reproducible from the cutlist + scripts.
 
 ### Workflow
 
-**1. Watch and note the cutlist** — open the video and write the ranges where
+**1. Create a voice folder**
+
+```bash
+./scripts/new-voice.sh <name>              # fresh: empty cutlist
+./scripts/new-voice.sh <name> --from data/<existing-voice>
+```
+
+**2. Watch and note the cutlist** — open the video and write the ranges where
 the target voice speaks cleanly (no music, no other speakers) into
 `data/<voice>/cutlist.txt`:
 
@@ -51,20 +70,21 @@ Timestamps accept `HH:MM:SS`, `MM:SS`, or plain seconds. Everything not listed
 is dropped — for fully clean sources this means you can list zero ranges.
 Aim for **20+ minutes** of kept speech in total (SPEC §6).
 
-**2. Run the extraction**
+**3. Run the extraction**
 
 ```bash
-./scripts/extract-audio.sh <voice>
+./scripts/extract-audio.sh <voice>    # the voice folder you're working on
 ```
 
 Downloads the audio and cuts the listed ranges (or whole videos) into
-`data/<voice>/selected/`. Reruns are safe — already-cut parts are skipped, so
-the cutlist can grow incrementally. Delete a wav and rerun to re-cut it.
+`data/<voice>/selected/`. Reruns are safe — already-cut parts are
+skipped, so the cutlist can grow incrementally. Delete a wav and rerun to
+re-cut it.
 
 For sources with background music, add `--demucs` (once: `pip install demucs`)
 to strip vocals-only before cutting.
 
-**3. Fine-tune a voice model**
+**4. Fine-tune a voice model**
 
 ```bash
 ./scripts/fine-tune.sh <voice> [epochs]
@@ -72,9 +92,10 @@ to strip vocals-only before cutting.
 
 Runs Applio's own pipeline (slice/resample → f0+embedder extraction →
 fine-tune) with the settings that worked here. Safe to Ctrl-C and rerun:
-training resumes from the latest checkpoint. **After each run, write
-`data/<voice>/models/<model>/TRAININGLOG.md`** next to the checkpoints —
-one provenance entry per model, with these fields:
+training resumes from the latest checkpoint. After each completed run the
+script appends a provenance entry to `data/<voice>/TRAININGLOG.md`,
+pre-filling Tool, Dataset and Train settings — **fill in the blank fields
+(Base model, Timing, Loss track)**, using this field list:
 
 ```
 Base model:       pretrained pair + rate + vocoder, checkpoint source
@@ -88,8 +109,8 @@ Output model:     final pth + index path
 ```
 
 The result —
-`data/<voice>/models/<voice>/<voice>_<N>e_<step>s.pth` plus the `.index`
-file under `generated/` — is a standard RVC model: load the pair into any
+`data/<voice>/<voice>_<N>e_<step>s.pth` plus the `.index` file in
+the same folder — is a standard RVC model: load the pair into any
 RVC-compatible tool for conversion.
 
 ## Requirements

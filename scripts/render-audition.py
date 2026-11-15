@@ -10,16 +10,18 @@ Two modes, identical model/settings, only the chunking scheme differs:
 The listener compares the two renditions to answer: does 0.1 s windowing hurt
 quality? (bench-rvc.py showed it is fast enough; quality was unmeasured.)
 
-Settings match the bench: gvs_100e_2700s.pth, rmvpe f0, index-rate 0.75,
-protect 0.5, contentvec, MPS by default.
+Settings match the bench: the fine-tuned model under test, rmvpe f0,
+index-rate 0.75, protect 0.5, contentvec, MPS by default.
 
 Example:
   external/Applio/.venv/bin/python scripts/render-audition.py \
-      --src data/gvs/audition/ma-voice.wav --mode whole \
-      --out data/gvs/audition/rendA-whole.wav
+      --src data/<voice>/audition/ma-voice.wav --mode whole \
+      --out data/<voice>/audition/rendA-whole.wav \
+      --model data/<voice>/<voice>_100e_2700s.pth --index data/<voice>/<voice>.index
   external/Applio/.venv/bin/python scripts/render-audition.py \
-      --src data/gvs/audition/ma-voice.wav --mode chunked --window 0.1 \
-      --out data/gvs/audition/rendB-win010.wav
+      --src data/<voice>/audition/ma-voice.wav --mode chunked --window 0.1 \
+      --out data/<voice>/audition/rendB-win010.wav \
+      --model data/<voice>/<voice>_100e_2700s.pth --index data/<voice>/<voice>.index
 """
 
 import os
@@ -27,8 +29,6 @@ import sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 APPLIO = os.path.join(REPO, "external", "Applio")
-DEFAULT_MODEL = os.path.join(REPO, "data", "gvs", "models", "gvs", "gvs_100e_2700s.pth")
-DEFAULT_INDEX = os.path.join(REPO, "data", "gvs", "models", "gvs", "gvs.index")
 
 import argparse
 
@@ -39,8 +39,8 @@ ap.add_argument("--out", required=True)
 ap.add_argument("--mode", choices=("whole", "chunked"), default="whole")
 ap.add_argument("--window", type=float, default=0.1, help="chunked mode: window seconds (hop = window)")
 ap.add_argument("--context", type=float, default=0.25, help="chunked mode: context seconds per side")
-ap.add_argument("--model", default=DEFAULT_MODEL)
-ap.add_argument("--index", default=DEFAULT_INDEX)
+ap.add_argument("--model", required=True, help="fine-tuned .pth to render with")
+ap.add_argument("--index", required=True, help="matching faiss .index file")
 ap.add_argument("--index-rate", type=float, default=0.75)
 ap.add_argument("--pitch", type=int, default=0)
 ap.add_argument("--device", choices=("mps", "cpu"), default=None)

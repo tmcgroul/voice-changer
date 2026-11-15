@@ -1,6 +1,6 @@
-# Voice Changer — Project Specification (v0.5)
+# Voice Changer — Project Specification (v0.6)
 
-> Status: working spec (v0.5, 2026-11-13). Living document — updated as decisions are made.
+> Status: working spec (v0.6, 2026-11-15). Living document — updated as decisions are made.
 > Some product aspects are intentionally not yet defined (owner will specify later);
 > those are marked **[TBD]**. The TBDs do not block the current next step (§7).
 
@@ -86,10 +86,10 @@ commercial product's bloat or subscription.
 | Neural inference compute | 65–125 ms on M3 Pro MPS (measured, window-size dependent) |
 | DSP back-end + output buffer | 20–30 ms |
 
-#### 4.2.1 Measured chunk latency (2026-11-05, M3 Pro MPS, gvs_100e_2700s.pth @40 kHz)
+#### 4.2.1 Measured chunk latency (2026-11-05, M3 Pro MPS, a fine-tuned 40 kHz model)
 
 Measured via Applio's own inference paths (`scripts/bench-rvc.py`, n=25
-chunks/row, p95 after warm-up; raw JSON in `data/gvs/benchmarks/`):
+chunks/row, p95 after warm-up; raw JSON in `data/<voice>/benchmarks/`):
 
 | window | compute p95 | est. e2e* |
 |---|---|---|
@@ -168,21 +168,36 @@ model — already trained on speech in general — and adapts it to specific voi
 All voice models are interchangeable files: create one, import one, share it,
 use it in real time.
 
-*All data for one voice lives in one folder* (voice-first layout):
-`data/<voice>/` with `cutlist.txt` (curated time ranges), `raw/` (full source
-downloads, kept for re-cutting), `selected/` (curated wavs — the folder that goes
-into RVC WebUI dataset prep), `models/` (fine-tuned .pth output; each model
-directory may carry a `TRAININGLOG.md` — provenance-only record of the
-parameters and data that produced it, field list in README; deleting the
-model deletes its record with it), `benchmarks/` (voice-specific measurement
-outputs, e.g. §4.2.1 latency JSONs), `audition/` (models + renditions used
-for hearing tests). The workflow is
-driven by one script + its cutlist (`scripts/extract-audio.sh`): a URL line starts
-a video section; the `START END` lines below it are the kept ranges; a section
-with no ranges uses the whole video. `--demucs` strips music/noise first for
-sources that need it. Quality criteria: solo speech, decent audio quality.
-Choosing source material / ranges is the only manual step; everything after
-(slicing, resampling, denoising) is delegated to RVC's dataset prep.
+**Voice folder: one self-sufficient folder per voice (2026-11-15 decision)**
+
+Every folder in `data/` is one voice and holds everything that produced it —
+model, data, provenance. Folders share nothing; deleting one deletes
+everything it needed. Names are freeform and user-chosen (`<voice>`,
+`<voice>-clean` in examples) and carry no structure — no versioning, no
+implied lineage, no ordering. A user picks a voice, not a version; several
+folders for one voice are just different takes, distinguished by name:
+
+- `cutlist.txt`, `raw/`, `selected/` — curated ranges, full downloads (kept
+  for re-cutting), dataset wavs for Applio prep
+- `TRAININGLOG.md` — provenance-only record, one entry per run written by
+  `fine-tune.sh` (field list in README); goes with the folder
+- checkpoints (needed for resume) + final pth/index; `benchmarks/`,
+  `audition/` (cross-voice comparisons go in the newest folder)
+
+Rules:
+
+- A new voice continues from an existing one (`new-voice.sh <name> --from
+  <dir>` clones its cutlist/raw/selected — APFS clone, no extra disk until
+  files diverge) or starts fresh. No fork semantics, no `Based on` tracking.
+- Retention is manual — superseded folders are deleted by the user after
+  auditioning; nothing is pruned automatically.
+- Workflow: `new-voice.sh` → watch + write cutlist → `extract-audio.sh` →
+  `fine-tune.sh` trains in place, resuming on rerun. Choosing sources and
+  ranges is the only manual step (criteria: solo speech, decent audio); the
+  rest is RVC dataset prep. Cutlist format, `--demucs`, mutes: README.
+
+Run 1 and Run 2 predate this layout; exact local names live in their
+TRAININGLOGs, not in this repo.
 
 #### 6.1 Noise strategy for fine-tuning data (2026-11-09 decisions)
 
@@ -213,9 +228,11 @@ Decisions:
 **Current next step:** real-time viability is settled (§4.2.1 bench +
 §4.2.2 live smoke test; C3 = adopted Applio realtime engine). **Run 2
 trained** (silence policy per §6.1: trimmed dataset + include-mutes 10;
-output `gvs_100e_2800s.pth`; Run-1 snapshots at `selected-run1/` and
-`models/gvs-run1/`); owner verdicts in: no audible noise improvement, no
-regression; parameter matrix winner f0=fcpe (protect/rms values pending).
+Run-2's output model and Run-1's model + dataset snapshot both migrated
+into their own per-voice folders per §6 — exact local names in their
+TRAININGLOGs);
+owner verdicts in: no audible noise improvement, no regression; parameter
+matrix winner f0=fcpe (protect/rms values pending).
 Later rounds (queued): cutlist growth toward 20+ min; click pass
 (`adeclick`) as its own round if still needed. Parallel later tasks:
 scripted loopback latency measurement to lock the §4.2 presets; C5

@@ -1,12 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# fine-tune.sh — fine-tune a pretrained RVC voice model on a voice's
-# `selected/` clips, via Applio (https://github.com/IAHispano/Applio).
+# C locale: awk printf must use '.' decimals (duration sum in the
+# TRAININGLOG entry).
+export LC_ALL=C
+
+# fine-tune.sh — fine-tune a pretrained RVC voice model on a voice
+# folder's `selected/` clips, via Applio (https://github.com/IAHispano/Applio).
 #
 # Usage:
-#   scripts/fine-tune.sh <voice> [epochs] [--include-mutes N]
-#                                              # default epochs: 100, mutes: 2
+#   scripts/fine-tune.sh <voice-folder> [epochs] [--include-mutes N]
+#                                        # default epochs: 100
+#
+# The argument is a voice folder (data/<voice>/, see
+# scripts/new-voice.sh), given as its name (<voice>) or path.
 #
 # --include-mutes N passes Applio's silence-anchor knob through (0-10): how
 # many 3 s true-silence samples per speaker get appended to the training
@@ -20,9 +27,10 @@ set -euo pipefail
 #
 # This is a thin wrapper (SPEC C7: wrap existing tooling, don't reinvent):
 # it runs Applio's own preprocess → extract → train pipeline with the exact
-# arguments that worked, and writes all outputs under data/<voice>/models/.
-# Applio's train step resumes from its latest checkpoint, so you can Ctrl-C
-# and rerun safely.
+# arguments that worked, and writes all outputs inside the voice folder
+# itself — it owns its inputs and outputs, nothing is shared. Applio's
+# train step resumes from its latest checkpoint, so you can Ctrl-C and
+# rerun safely.
 
 VOICE=""
 EPOCHS=""
@@ -38,22 +46,26 @@ while [[ $# -gt 0 ]]; do
     esac
     shift
 done
-[[ -n $VOICE ]] || { echo 'usage: scripts/fine-tune.sh <voice> [epochs] [--include-mutes N]' >&2; exit 1; }
+[[ -n $VOICE ]] || { echo 'usage: scripts/fine-tune.sh <voice-folder> [epochs] [--include-mutes N]' >&2; exit 1; }
 EPOCHS=${EPOCHS:-100}
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
-MODEL_NAME="$VOICE"
-SELECTED="$REPO/data/$VOICE/selected"
-MODELS="$REPO/data/$VOICE/models"
+# normalize a voice-folder argument: <voice> or data/<voice> -> data/<voice>
+ARG=${VOICE%/}; ARG=${ARG#./}; ARG=${ARG#data/}
+DIR="data/$ARG"
+[[ -d $DIR ]] || { echo "error: no voice folder $DIR — create one with scripts/new-voice.sh" >&2; exit 1; }
+MODEL_NAME=$(basename "$DIR")
+SELECTED="$REPO/$DIR/selected"
 
 [ -d "$SELECTED" ] || { echo "No dataset: $SELECTED missing" >&2; exit 1; }
 APPLIO="$REPO/external/Applio"
 [ -d "$APPLIO" ] || { echo "Applio missing: $APPLIO (see README)" >&2; exit 1; }
 
 cd "$APPLIO"
-# Keep all Applio outputs (training logs, checkpoints, final models)
-# inside the project's voice-first layout, out of the repo.
-export APPLIO_LOGS_DIR="$MODELS"
+# Keep all Applio outputs (training logs, checkpoints, final models) inside
+# the voice folder, out of the repo: logs root data/ + folder name
+# <voice> -> data/<voice>/.
+export APPLIO_LOGS_DIR="$REPO/data"
 PYTHON="$APPLIO/.venv/bin/python"
 
 # Target sample rate (Hz). 40000 = standard quality for speech; 32000 trains
@@ -69,8 +81,10 @@ set -x
 # Station 2/3: pitch (f0, RMVPE) + contentvec-style embeddings per clip.
 MUTE_ARG=()
 [[ -n $MUTES ]] && MUTE_ARG=(--include-mutes "$MUTES")
+# ${MUTE_ARG[@]+...} guards empty-array expansion under bash 3.2 + set -u
 "$PYTHON" core.py extract --model-name "$MODEL_NAME" --f0-method rmvpe \
-  --cpu-cores 6 --gpu "-" --sample-rate "$SR" "${MUTE_ARG[@]}"
+  --cpu-cores 6 --gpu "-" --sample-rate "$SR" \
+  ${MUTE_ARG[@]+"${MUTE_ARG[@]}"}
 
 # Step 3/3: the fine-tune. Resumes from latest checkpoint if any exist.
 # `--save-only-latest` keeps disk/IO sane; checkpoints every 25 epochs so
@@ -79,5 +93,45 @@ MUTE_ARG=()
   --total-epoch "$EPOCHS" --save-every-epoch 25 --save-only-latest \
   --batch-size 8 --gpu 0 --pretrained --index-algorithm Faiss
 
-# Result: MODELS/<voice>/<voice>_<epoch>e_<step>s.pth + .index file under
-# MODELS/<voice>/generated/. Voice converter inputs: pth file + index.
+# Result: <DIR>/<voice>_<epoch>e_<step>s.pth + .index file in the same
+# folder. Voice converter inputs: pth file + index.
+
+# log_run — provenance: create-or-append TRAININGLOG.md, one entry per
+# completed run. Auto-fills what the script knows; leaves Base model,
+# Timing, Loss track blank for the user. No verdicts or audition notes.
+log_run() {
+    local LOG="$REPO/$DIR/TRAININGLOG.md"
+    if [[ ! -f $LOG ]]; then
+        cat > "$LOG" <<EOF
+# Training provenance — $(basename "$DIR")
+
+One entry per fine-tune run, written by fine-tune.sh when the run finishes;
+this file belongs to this voice directory. Field list lives in README
+("Fine-tune a voice model"). Provenance only — no verdicts or audition notes.
+
+EOF
+    fi
+    local CLIPS MINUTES COMMIT
+    CLIPS=$(find "$SELECTED" -name '*.wav' | wc -l | tr -d ' ')
+    MINUTES=$(find "$SELECTED" -name '*.wav' -print0 |
+        xargs -0 -n1 ffprobe -v error -show_entries format=duration \
+            -of csv=p=0 2>/dev/null | awk '{s+=$1} END {printf "%.1f", s/60}')
+    COMMIT=$(git -C "$APPLIO" rev-parse --short HEAD 2>/dev/null || echo '?')
+    cat >> "$LOG" <<EOF
+
+### Run: $(basename "$DIR") — $(date +%Y-%m-%d)
+
+- **Base model:**
+- **Tool:** Applio $COMMIT (external/Applio), .venv python, macOS/MPS
+- **Dataset:** $CLIPS clips, $MINUTES min (selected/), sr $SR mono$( [[ -n $MUTES ]] && echo ", --include-mutes $MUTES" || echo ", mutes default (2)")
+- **Train settings:** $EPOCHS epochs, batch 8, save-every 25 (latest only), f0 rmvpe, index Faiss, gpu "-"
+- **Timing:**
+- **Loss track:**
+- **Checkpoints kept:** $REPO/$DIR/checkpoints/
+- **Output model:** $REPO/$DIR/$(basename "$DIR")_${EPOCHS}e_*.pth + .index
+EOF
+    echo "logged run in $LOG (fill in Base model, Timing, Loss track)"
+}
+
+log_run
+echo "done"

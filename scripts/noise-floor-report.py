@@ -4,18 +4,23 @@
 Renders test inputs (real pause with fan noise / digital silence /
 pause->silence / speech) through the fine-tuned model and a wrapped base
 pretrained generator, then reports per-file frame-RMS floor and octave-band
-energy. Outputs live in data/gvs/audition/noisetest/; the 2026-11-09 finding
-(the fine-tuned model reproduces the dataset's fan-noise floor even on
-digital silence; base pretrain emits a louder bed) is recorded in SPEC §6.1.
+energy. Outputs live in <out-dir>/ (pass --out-dir, conventionally
+data/<voice>/audition/noisetest/); the 2026-11-09 finding (the fine-tuned
+model reproduces the dataset's fan-noise floor even on digital silence;
+base pretrain emits a louder bed) is recorded in SPEC §6.1.
 
-Inputs are built by the same script from data/gvs/selected (idempotent).
-Renders require scripts/render-audition.py (Applio venv); wrapper checkpoint
-(external/Applio/logs/base-pretrained.pth) is rebuilt from the stock
-hifi-gan pretrain if missing.
+Inputs are built by the same script from the model's selected/ clips
+(idempotent). Renders require scripts/render-audition.py (Applio venv);
+wrapper checkpoint (external/Applio/logs/base-pretrained.pth) is rebuilt
+from the stock hifi-gan pretrain if missing.
 
 Run:
-  external/Applio/.venv/bin/python scripts/noise-floor-report.py
+  external/Applio/.venv/bin/python scripts/noise-floor-report.py \
+      --clip data/<voice>/selected/<clip>.wav --pause-start 27.85 --pause-end 31.65 \
+      --model data/<voice>/<voice>_100e_2700s.pth --index data/<voice>/<voice>.index \
+      --out-dir data/<voice>/audition/noisetest
 """
+import argparse
 import math
 import os
 import struct
@@ -23,15 +28,27 @@ import subprocess
 import sys
 import wave
 
+ap = argparse.ArgumentParser(description=__doc__,
+                             formatter_class=argparse.RawDescriptionHelpFormatter)
+ap.add_argument("--clip", required=True,
+                help="a speech wav from the model's dataset containing a real quiet span")
+ap.add_argument("--pause-start", type=float, required=True,
+                help="measured quiet span (fan noise present) start, seconds into --clip")
+ap.add_argument("--pause-end", type=float, required=True,
+                help="measured quiet span end, seconds into --clip")
+ap.add_argument("--model", required=True, help="fine-tuned .pth to diagnose")
+ap.add_argument("--index", required=True, help="matching faiss .index file")
+ap.add_argument("--out-dir", required=True, help="where test wavs and report inputs go")
+args = ap.parse_args()
+
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 APPLIO = os.path.join(REPO, "external", "Applio")
-SRC_CLIP = os.path.join(REPO, "data", "gvs", "selected",
-                        "yfdtmEbu8OA_3-.59-.38_4-.01-.30.wav")
-NT = os.path.join(REPO, "data", "gvs", "audition", "noisetest")
-GVS = os.path.join(REPO, "data", "gvs", "models", "gvs", "gvs_100e_2700s.pth")
-GIDX = os.path.join(REPO, "data", "gvs", "models", "gvs", "gvs.index")
+SRC_CLIP = args.clip
+NT = args.out_dir
+FTN = args.model
+FIDX = args.index
 BASE_PTH = os.path.join(APPLIO, "logs", "base-pretrained.pth")
-PAUSE = (27.85, 31.65)   # measured quiet span (fan noise present) in SRC_CLIP
+PAUSE = (args.pause_start, args.pause_end)
 
 RENDER = os.path.join(REPO, "scripts", "render-audition.py")
 
@@ -72,7 +89,7 @@ write16(f"{NT}/in_voice.wav", speech, fs)
 # ---------- wrapper checkpoint for the stock base pretrain --------------------
 if not os.path.exists(BASE_PTH):
     import torch
-    g = torch.load(GVS, map_location="cpu", weights_only=True)
+    g = torch.load(FTN, map_location="cpu", weights_only=True)
     b = torch.load(os.path.join(APPLIO, "rvc/models/pretraineds/hifi-gan/f0G40k.pth"),
                    map_location="cpu", weights_only=True)
     b = b["model"] if "model" in b else b
@@ -84,13 +101,13 @@ if not os.path.exists(BASE_PTH):
 # ---------- render ------------------------------------------------------------
 PY = os.path.join(APPLIO, ".venv", "bin", "python")
 for t in ("pause", "pause_sil", "sil", "voice"):
-    for tag, model, irate in (("gvs", GVS, 0.75), ("base", BASE_PTH, 0.0)):
+    for tag, model, irate in (("model", FTN, 0.75), ("base", BASE_PTH, 0.0)):
         out = f"{NT}/o_{tag}_{t}.wav"
         if os.path.exists(out):
             continue
         subprocess.run([PY, RENDER, "--src", f"{NT}/in_{t}.wav", "--mode", "chunked",
                         "--window", "0.25", "--device", "mps",
-                        "--model", model, "--index", GIDX, "--index-rate", str(irate),
+                        "--model", model, "--index", FIDX, "--index-rate", str(irate),
                         "--out", out], cwd=APPLIO, check=True)
 
 # ---------- report ------------------------------------------------------------
@@ -100,7 +117,7 @@ import soundfile as sf
 BANDS = [(50, 100), (100, 200), (200, 400), (400, 800), (800, 1600),
          (1600, 3150), (3150, 6300), (6300, 12500)]
 files = ["in_pause.wav", "in_sil.wav"] + \
-        [f"o_{tag}_{t}.wav" for tag in ("gvs", "base")
+        [f"o_{tag}_{t}.wav" for tag in ("model", "base")
          for t in ("pause", "pause_sil", "sil", "voice")]
 print(f"{'file':22s} {'floor':>6s} {'med':>6s} | bands: " +
       " ".join(f"{lo}-{hi}" for lo, hi in BANDS))

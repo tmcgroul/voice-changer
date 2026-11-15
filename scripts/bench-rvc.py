@@ -25,6 +25,8 @@ their whole-file path pads); --pad explores slimmer chunker contexts.
 
 Example:
   external/Applio/.venv/bin/python scripts/bench-rvc.py \
+      --model data/<voice>/<voice>_100e_2700s.pth --index data/<voice>/<voice>.index \
+      --audio data/<voice>/selected/<clip>.wav \
       --windows 0.1,0.25,0.5,1.0 --reps 25 --json /tmp/bench.json
 """
 
@@ -38,20 +40,17 @@ import time
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 APPLIO = os.path.join(REPO, "external", "Applio")
-DEFAULT_MODEL = os.path.join(REPO, "data", "gvs", "models", "gvs", "gvs_100e_2700s.pth")
-DEFAULT_INDEX = os.path.join(REPO, "data", "gvs", "models", "gvs", "gvs.index")
-DEFAULT_AUDIO = os.path.join(REPO, "data", "gvs", "selected",
-                             "yfdtmEbu8OA_3-.59-.38_4-.01-.30.wav")
 
 def _parse_args():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--model", required=True, help="fine-tuned .pth to bench")
+    ap.add_argument("--index", required=True, help="matching faiss .index file")
+    ap.add_argument("--audio", required=True,
+                    help="a speech wav from the model's dataset (real chunks)")
     ap.add_argument("--windows", default="0.1,0.25,0.5,1.0")
     ap.add_argument("--reps", type=int, default=25, help="timed chunks per window size")
     ap.add_argument("--warmup", type=int, default=5, help="discarded chunks per window size")
-    ap.add_argument("--model", default=DEFAULT_MODEL)
-    ap.add_argument("--index", default=DEFAULT_INDEX)
-    ap.add_argument("--audio", default=DEFAULT_AUDIO)
     ap.add_argument("--index-rate", type=float, default=0.75)
     ap.add_argument("--pad", type=float, default=1.0,
                     help="context seconds padded per side (Applio's t_pad = 1.0)")

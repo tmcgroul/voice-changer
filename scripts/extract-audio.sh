@@ -10,9 +10,12 @@ export LC_ALL=C
 # extract-audio.sh — curated voice recordings: download + cut listed time ranges.
 #
 # Usage:
-#   scripts/extract-audio.sh <voice> [cutlist-file] [--demucs]
+#   scripts/extract-audio.sh <voice-folder> [cutlist-file] [--demucs]
 #                                          [--cookies-from-browser BROWSER]
 #                                          [--retrim]
+#
+# The argument is a voice folder (data/<voice>/, see scripts/new-voice.sh),
+# given as its name (<voice>) or path.
 #
 # YouTube may bot-check yt-dlp; --cookies-from-browser chrome/safari/firefox
 # uses your browser's cookies in that case and is forwarded to yt-dlp.
@@ -56,9 +59,9 @@ export LC_ALL=C
 #   data/<voice>/cutlist.txt   the ranges (write this while watching)
 #   data/<voice>/raw/          complete downloaded audios (kept for re-cutting)
 #   data/<voice>/selected/     one wav per range (<id>_<start>_<end>.wav or
-#                              <id>_full.wav) — the folder for RVC WebUI
-#                              dataset prep; fine-tune output later goes to
-#                              data/<voice>/models/
+#                                 <id>_full.wav) — the folder that goes into
+#                                 dataset prep; fine-tune output later lands in
+#                                 the same folder (scripts/fine-tune.sh)
 #
 # Behavior notes:
 #   - Rerunning is safe: already-downloaded videos and already-cut ranges are
@@ -70,7 +73,7 @@ export LC_ALL=C
 #   - --no-trim cuts without the trimmer (raw cuts; for A/B diffs).
 
 if [[ $# -lt 1 || $# -gt 3 ]]; then
-    grep '^#' "$0" | head -n 40 | sed 's/^# \{0,1\}//;s/^#$//'
+    grep '^#' "$0" | sed '1d' | head -n 40 | sed 's/^# \{0,1\}//;s/^#$//'
     exit 1
 fi
 
@@ -103,6 +106,7 @@ while [[ $# -gt 0 ]]; do
     esac
     shift
 done
+[[ -n $NAME ]] || { echo 'usage: scripts/extract-audio.sh <voice-folder> [cutlist-file] [--demucs] [--cookies-from-browser BROWSER] [--retrim]' >&2; exit 1; }
 
 for tool in yt-dlp ffmpeg ffprobe; do
     command -v "$tool" > /dev/null || { echo "error: '$tool' not found — install it (see README Requirements)" >&2; exit 1; }
@@ -111,12 +115,21 @@ if $DEMUCS; then
     python3 -c "import demucs" > /dev/null 2>&1 || { echo "error: demucs not installed (pip install demucs)" >&2; exit 1; }
 fi
 
-LIST=${LIST:-data/${NAME}/cutlist.txt}
-[[ -f $LIST ]] || { echo "error: no cutlist at $LIST (pass a path or create data/${NAME}/cutlist.txt first)" >&2; exit 1; }
+source_dir_arg() {
+    # normalize a voice-folder argument: <voice> or data/<voice> -> data/<voice>
+    local a=${1%/}
+    a=${a#./}; a=${a#data/}
+    echo "data/$a"
+}
 
-RAW="data/${NAME}/raw"
-OUT="data/${NAME}/selected"
-mkdir -p "$RAW" "$OUT" "data/${NAME}/models"
+DIR=$(source_dir_arg "$NAME")
+[[ -d $DIR ]] || { echo "error: no voice folder $DIR — create one with scripts/new-voice.sh" >&2; exit 1; }
+LIST=${LIST:-$DIR/cutlist.txt}
+[[ -f $LIST ]] || { echo "error: no cutlist at $LIST (pass a path or run scripts/new-voice.sh first)" >&2; exit 1; }
+
+RAW="$DIR/raw"
+OUT="$DIR/selected"
+mkdir -p "$RAW" "$OUT"
 
 # "1:02:03" / "02:03" / "3" -> seconds (via awk)
 sec() { awk -v t="$1" 'BEGIN{n=split(t,a,":"); r=0; for(i=1;i<=n;i++) r=r*60+a[i]; printf "%.3f", r}'; }
@@ -234,12 +247,13 @@ while read -r line <&3 || [[ -n $line ]]; do
         # short-circuit: if we can already tell the id from the URL and the raw
         # file is here, skip the network entirely (yt-dlp may be bot-blocked)
         if [[ -z $vid ]] || ! ext_for "$vid" > /dev/null; then
+            # ${COOKIES[@]+...} guards empty-array expansion under bash 3.2 + set -u
             vid=$(yt-dlp --no-download --no-warnings --print id \
-                      "${COOKIES[@]}" "$line" < /dev/null)
+                      ${COOKIES[@]+"${COOKIES[@]}"} "$line" < /dev/null)
             if ! ext_for "$vid" > /dev/null; then
                 echo "==> downloading $vid"
                 yt-dlp -f "bestaudio[ext=m4a]/bestaudio" --no-warnings \
-                    "${COOKIES[@]}"   \
+                    ${COOKIES[@]+"${COOKIES[@]}"}   \
                     -o "${RAW}/%(id)s.%(ext)s" "$line" < /dev/null > /dev/null
                 ext_for "$vid" > /dev/null || { echo "error: download produced no audio file for $vid" >&2; exit 1; }
             fi
@@ -274,4 +288,4 @@ echo
 echo "cut: $cut_files new, $skipped_files already done -> $OUT/"
 awk -v t="$total_new" -v c="$cut_files" \
     'BEGIN{ if (c>0) printf "new material this run: %.1f min\n", t/60 }'
-printf 'next: drop %s into RVC WebUI "Train a model" -> dataset preparation\n' "$OUT/"
+printf 'next: scripts/fine-tune.sh %s\n' "$(basename "$DIR")"
