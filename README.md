@@ -113,6 +113,23 @@ The result —
 the same folder — is a standard RVC model: load the pair into any
 RVC-compatible tool for conversion.
 
+**Standard audition** — every completed run also renders the owner's
+reference sample (`voice-sample.wav` at the repo root) through the fresh
+model with fixed settings (whole-file pipeline, default index-rate/protect,
+CPU), producing two comparable candidates in the voice folder:
+
+```
+data/<voice>/audition/rend-sample-rmvpe.wav    f0 method rmvpe
+data/<voice>/audition/rend-sample-fcpe.wav     f0 method fcpe
+```
+
+The files are overwritten on the next run; rename a file first if you want to
+keep it for a cross-run comparison. Cross-voice comparisons live in the
+newest voice folder (SPEC §6). Missing `voice-sample.wav` or a failed render
+never fails the training run — you'll just see a note. For custom audition
+renders (other clips, chunked windows), use `scripts/render-audition.py`
+directly (`--help` for options).
+
 ## Requirements
 
 Everything the scripts need, with the recommended install for each. The

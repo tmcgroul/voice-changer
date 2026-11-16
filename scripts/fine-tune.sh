@@ -134,4 +134,34 @@ EOF
 }
 
 log_run
+
+# Standard audition: render the fixed sample through the fresh model so
+# every run produces comparable candidates. Fixed settings for all runs
+# (whole-file pipeline, script-default index-rate/protect); only f0 method
+# differs (rmvpe + fcpe). The sample (23.4 s) exceeds the MPS whole-pass
+# limit (SPEC §4.2.1), so renders run on CPU. Failure here must not fail
+# the fine-tune run itself.
+SAMPLE="$REPO/voice-sample.wav"
+if [[ ! -f $SAMPLE ]]; then
+    echo "note: no $REPO/voice-sample.wav — standard audition skipped"
+else
+    PTH=$(ls "$REPO/$DIR/${MODEL_NAME}_${EPOCHS}e_"*.pth 2>/dev/null | head -n1 || true)
+    IDX="$REPO/$DIR/${MODEL_NAME}.index"
+    if [[ -z $PTH || ! -f $IDX ]]; then
+        echo "warning: final model not found — standard audition skipped"
+    else
+        mkdir -p "$REPO/$DIR/audition"
+        for F0 in rmvpe fcpe; do
+            OUT="$REPO/$DIR/audition/rend-sample-$F0.wav"
+            if ! "$PYTHON" "$REPO/scripts/render-audition.py" \
+                --src "$SAMPLE" --mode whole --out "$OUT" \
+                --model "$PTH" --index "$IDX" --f0-method "$F0" \
+                --device cpu; then
+                echo "warning: audition render ($F0) failed — see output above"
+            fi
+        done
+        echo "standard audition: $REPO/$DIR/audition/rend-sample-{rmvpe,fcpe}.wav"
+    fi
+fi
+
 echo "done"

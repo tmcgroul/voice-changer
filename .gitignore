@@ -2,6 +2,10 @@
 # Large, private, and reproducible from documented steps — never commit it.
 data/
 
+# The owner's standard audition sample (private recording; input to the
+# standardized post-fine-tune audition, see README "Fine-tune a voice model")
+voice-sample.wav
+
 # OS / tooling noise
 .DS_Store
 __pycache__/
